@@ -1,2 +1,2 @@
 # rrt
-rust redis tool
+redis rdb parser
