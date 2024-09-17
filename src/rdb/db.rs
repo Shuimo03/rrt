@@ -18,7 +18,6 @@ impl Parser for DbInfo {
             match flag_byte[0] {
                 FE => {
                     let db_number = parse_db_number(cursor)?; // 解析DB编号
-                    println!("Selected database: {}", db_number);
                 }
                 FF => {
                     println!("End of RDB file");

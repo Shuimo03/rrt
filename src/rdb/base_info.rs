@@ -51,45 +51,44 @@ impl Parser for AuxInfo {
             redis_server_version: String::new(),
             used_mem: 0,
         };
+
         let aux_name = parser_aux_name(cursor)?;
+        let aux_value = parser_aux_value(cursor)?;
 
         match aux_name.as_str() {
-            "redis-ver" => {
-                aux_info.redis_server_version = parser_aux_value(cursor)?;
-            }
-            "used-mem" => {
-                aux_info.used_mem = parser_aux_value(cursor)?.parse::<usize>().expect("Failed to parse used-mem");
-            }
-
+            "redis-ver" => aux_info.redis_server_version = aux_value,
+            "used-mem" => aux_info.used_mem = aux_value.parse::<usize>().expect("Failed to parse used-mem"),
             _ => {
-
+                // 忽略其他未知字段
+                println!("Unknown aux_name: {}", aux_name);
             }
         }
+
         Ok(aux_info)
     }
-
-
 }
+
 
 fn parser_aux_name(cursor: &mut Cursor<&[u8]>)-> Result<String>{
     let mut aux_name_after = [0;1];
     cursor.read_exact(&mut aux_name_after)?;
     if aux_name_after[0] < 0 || aux_name_after[0] > 127 {
+        println!("aux_name_after: {:x?}",aux_name_after);
         return Err(Error::new(ErrorKind::InvalidData, "parser_aux_name Value contains non-ASCII characters"));
     }
 
-    let aux_value_length = aux_name_after[0] as usize;
-    let mut  aux_value = vec![0;aux_value_length];
+    let aux_name_length = aux_name_after[0] as usize;
+    let mut  aux_name = vec![0;aux_name_length];
 
 
-    cursor.read_exact(&mut aux_value)
+    cursor.read_exact(&mut aux_name)
         .map_err(|_| Error::new(ErrorKind::UnexpectedEof, "Failed to read key bytes"))?;
 
 
-    let aux_value_str = String::from_utf8(aux_value)
+    let aux_value_str = String::from_utf8(aux_name)
         .map_err(|_| Error::new(ErrorKind::InvalidData, "Failed to convert bytes to string"))?;
 
-    Ok((aux_value_str))
+    Ok(aux_value_str)
 }
 
 
@@ -101,20 +100,23 @@ fn parser_aux_value(cursor: &mut Cursor<&[u8]>) -> Result<String>{
     cursor.read_exact(&mut fa_after)?;
 
     if fa_after[0] < 0 || fa_after[0] > 127{
-        return Err(Error::new(ErrorKind::InvalidData, "parser_aux_value Value contains non-ASCII characters"));
+        println!("parser_aux_value: {:x?}",fa_after);
+        log::warn!("Non-ASCII characters detected, setting value to an empty string.");
+        return Ok(String::new()); 
     }
 
-    let aux_name_length = fa_after[0] as usize;
-    let mut  aux_name = vec![0;aux_name_length];
+    let aux_value_length = fa_after[0] as usize;
+    let mut  aux_value = vec![0;aux_value_length];
 
 
-    cursor.read_exact(&mut aux_name)
+    cursor.read_exact(&mut aux_value)
         .map_err(|_| Error::new(ErrorKind::UnexpectedEof, "Failed to read key bytes"))?;
 
 
-    let aux_name_str = String::from_utf8(aux_name)
+    let aux_name_str = String::from_utf8(aux_value)
         .map_err(|_| Error::new(ErrorKind::InvalidData, "Failed to convert bytes to string"))?;
 
 
     Ok(aux_name_str)
 }
+
