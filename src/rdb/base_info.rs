@@ -57,12 +57,22 @@ impl Parser for AuxInfo {
 
         match aux_name.as_str() {
             "redis-ver" => aux_info.redis_server_version = aux_value,
-            "used-mem" => aux_info.used_mem = aux_value.parse::<usize>().expect("Failed to parse used-mem"),
+            "used-mem" => {
+                if aux_value.is_empty() {
+                    aux_info.used_mem = 0;
+                } else {
+                    aux_info.used_mem = aux_value.parse::<usize>().unwrap_or_else(|_| {
+                        println!("Failed to parse used-mem, setting it to 0");
+                        0
+                    });
+                }
+            },
             _ => {
                 // 忽略其他未知字段
                 println!("Unknown aux_name: {}", aux_name);
             }
         }
+
 
         Ok(aux_info)
     }
@@ -100,9 +110,8 @@ fn parser_aux_value(cursor: &mut Cursor<&[u8]>) -> Result<String>{
     cursor.read_exact(&mut fa_after)?;
 
     if fa_after[0] < 0 || fa_after[0] > 127{
-        println!("parser_aux_value: {:x?}",fa_after);
         log::warn!("Non-ASCII characters detected, setting value to an empty string.");
-        return Ok(String::new()); 
+        return Ok(String::new());
     }
 
     let aux_value_length = fa_after[0] as usize;
@@ -119,4 +128,3 @@ fn parser_aux_value(cursor: &mut Cursor<&[u8]>) -> Result<String>{
 
     Ok(aux_name_str)
 }
-

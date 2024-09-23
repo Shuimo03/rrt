@@ -1,6 +1,7 @@
 use std::io::{Cursor, Read, Result, Error, ErrorKind};
 use crate::{AuxInfo, BaseInfo,DbInfo};
-use crate::rdb::constants::{FA,FE, FF};
+//use crate::rdb::rdb_flag::{FA, FB, FE, FF};
+use crate::rdb::rdb_flag::*;
 
 
 pub trait Parser {
@@ -13,7 +14,7 @@ pub trait Parser {
 pub struct RDBInfo {
     pub base_info: BaseInfo,
     pub aux_info: AuxInfo,
-    //   pub db_info: DbInfo,
+    pub db_info: DbInfo,
 
 }
 pub struct ParserFactory;
@@ -25,12 +26,15 @@ impl ParserFactory {
         let mut cursor = Cursor::new(rdb_context);
         let base_info = BaseInfo::parse(&mut cursor)?;
         let rdb_version:usize = base_info.rdb_version.parse().expect("Not a valid number");
-        let mut db_info=  None;
 
 
         let mut aux_info = AuxInfo {
             redis_server_version: String::new(),
             used_mem: 0,
+        };
+
+        let mut db_info = DbInfo{
+            db_id: 0,
         };
 
 
@@ -57,9 +61,9 @@ impl ParserFactory {
                     }
                 }
                 FE => {
-                    db_info = Some(DbInfo::parse(&mut cursor)?);
+                    let new_db_info = DbInfo::parse(&mut cursor)?;
+                    db_info.db_id = new_db_info.db_id;
                 }
-
                 FF => {
                     println!("parse done.");
                     break
@@ -74,11 +78,11 @@ impl ParserFactory {
         let rdb_info = RDBInfo {
             base_info,
             aux_info,
+            db_info,
         };
 
         Ok(rdb_info)
     }
 
 }
-
 
