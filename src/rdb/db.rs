@@ -1,5 +1,5 @@
 use std::io::{Cursor, Error, ErrorKind, Read, Result};
-use crate::{KeyType,Pair,ValueType, Parser};
+use crate::{LIST_QUICKLIST_ENCODING, Pair, Parser, STRING_ENCODING};
 use crate::rdb::rdb_flag::{FB, FC, FD,FE};
 #[derive(Debug)]
 pub struct DbInfo {
@@ -18,41 +18,52 @@ impl Parser for DbInfo {
     fn parse(cursor: &mut Cursor<&[u8]>) -> Result<DbInfo> {
         let mut db_number = [0; 1];
         cursor.read_exact(&mut db_number)?;
-        //TODO 有时候FE后面不一定是在0-15这个范围，有可能会是其他的值，就表示有问题。
-        let  db_id = db_number[0];
 
-
-
+        let db_id = db_number[0];
+        let mut resize_info: Option<ResizeDbInfo> = None;
+        
         loop {
-            let mut flags  = parser_flag(cursor)?;
+            let flags = parser_flag(cursor)?;
             match flags {
                 FB => {
-                    let fb =  parse_fb(cursor);
-                    println!("FB:{:?}",fb);
-                    let kv = Pair::parse(cursor)?;
-                    println!("Parsed KV: {:?}", kv);
+                    match parse_fb(cursor) {
+                        Ok(fb) => {
+                            println!("FB: {:?}", fb);
+                            resize_info = Some(fb);
+                        },
+                        Err(e) => {
+                            return Err(Error::new(ErrorKind::InvalidData, format!("Error parsing FB: {:?}", e)));
+                        }
+                    }
                 }
                 FC => {
-                    parse_fc(cursor)
+                    match parse_fc(cursor) {
+                        Ok(kv) => println!("Parsed KV with FC: {:?}", kv),
+                        Err(e) => return Err(Error::new(ErrorKind::InvalidData, format!("Error parsing FC: {:?}", e))),
+                    }
                 }
                 FD => {
-                    parse_fd(cursor)
+                    match parse_fd(cursor) {
+                        Ok(kv) => println!("Parsed KV with FD: {:?}", kv),
+                        Err(e) => return Err(Error::new(ErrorKind::InvalidData, format!("Error parsing FD: {:?}", e))),
+                    }
                 }
-                FE =>{
-                    break
-                }
-                //因为flag_byte是读取FE后一位，所以这里是匹配到id，但是这里处理太粗糙了
                 _ => {
-                    continue;
-
+                    if is_key_type(cursor) {
+                        match Pair::parse(cursor) {
+                            Ok(kv) => println!("Parsed KV without expiry: {:?}", kv),
+                            Err(e) => return Err(Error::new(ErrorKind::InvalidData, format!("Error parsing KV: {:?}", e))),
+                        }
+                    } else {
+                        println!("position:{:?}",cursor.position());
+                        println!("other key: {:x?}",flags);
+                        continue
+                    }
                 },
             }
         }
 
-        let db = DbInfo {
-            db_id,
-        };
-        Ok(db)
+        Ok(DbInfo { db_id })
     }
 }
 
@@ -77,9 +88,9 @@ fn parse_fb(cursor: &mut Cursor<&[u8]>) -> Result<ResizeDbInfo> {
     // 读取过期哈希表大小
     let total_expire_key = rdb_load_len(cursor)?;
     resize_db.total_expire_key = total_expire_key as u8;
+    //解析key-value
     Ok(resize_db)
 }
-
 
 fn rdb_load_len(cursor: &mut Cursor<&[u8]>) -> Result<usize> {
     let mut len_bytes = [0; 1];
@@ -111,12 +122,51 @@ fn rdb_load_len(cursor: &mut Cursor<&[u8]>) -> Result<usize> {
     }
 }
 
-fn parse_fc(cursor: &mut Cursor<&[u8]>){
-    println!("parse_fc FC")
+fn parse_fc(cursor: &mut Cursor<&[u8]>) -> Result<Pair> {
+    println!("parse_fc");
+    // 读取过期时间（毫秒）
+    let mut expiry_time_ms = [0; 8];
+    cursor.read_exact(&mut expiry_time_ms)?;
+    println!("expiry_time_ms:{:x?}",expiry_time_ms);
+    // 将读取的字节转换为无符号长整型（u64）
+    let expiry_time = u64::from_le_bytes(expiry_time_ms);
+    let kv = Pair::parse(cursor)?;
+
+
+    let kv_with_expiry = Pair {
+        expiry: Some(expiry_time),
+        ..kv // 这里使用 kv 中的其他字段
+    };
+
+    Ok(kv_with_expiry)
+}
+fn parse_fd(cursor: &mut Cursor<&[u8]>)-> Result<Pair>{
+    println!("parse_fd FD");
+    let mut expiry_time_sec = [0; 4];
+    cursor.read_exact(&mut expiry_time_sec)?;
+    println!("expiry_time_sec:{:?}",expiry_time_sec);
+
+    let expiry_time_sec = u32::from_le_bytes(expiry_time_sec);
+
+    let expiry_time = expiry_time_sec as u64;
+    let kv = Pair::parse(cursor)?;
+    // 你可以将过期时间存储在 kv 中，假设 Pair 结构体可以支持过期时间
+    let kv_with_expiry = Pair {
+        expiry: Some(expiry_time),
+        ..kv // 这里使用 kv 中的其他字段
+    };
+
+    Ok(kv_with_expiry)
 }
 
-fn parse_fd(cursor: &mut Cursor<&[u8]>){
-    println!("parse_fc FD")
+
+fn is_key_type(cursor: &mut Cursor<&[u8]>) -> bool {
+    let mut fb_after_value = [0; 1];
+    match cursor.read_exact(&mut fb_after_value) {
+        Ok(_) => {
+            let key_type = fb_after_value[0];
+            key_type >= STRING_ENCODING && key_type <= LIST_QUICKLIST_ENCODING
+        },
+        Err(_) => false // 如果读取失败，返回 false
+    }
 }
-
-
