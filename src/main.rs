@@ -29,9 +29,7 @@ fn main() -> io::Result<()> {
 
             if e.kind() == ErrorKind::InvalidData {
                 warn!("Invalid data encountered, skipping this section...");
-                // 继续逻辑，可以跳过当前数据块
             } else {
-                // 处理其他错误或停止
                 return Err(e);
             }
         }
